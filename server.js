@@ -30,12 +30,65 @@ app.use(express.urlencoded({ extended: true }));
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
 app.use('/api/', apiLimiter);
 
+// Serve static files from public folder
 app.use(express.static(path.join(__dirname, 'public')));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', company: 'Hama Enterprise Ng', time: new Date().toISOString() });
+});
+
+// Homepage - simple landing page so root URL does not show "Cannot GET"
+app.get('/', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hama Enterprise Ng - Live Chat Support</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f8fafc; color: #1e293b; }
+    header { background: #0D7377; color: white; padding: 32px 24px; text-align: center; }
+    header h1 { margin: 0 0 8px; font-size: 28px; }
+    header p { margin: 0; opacity: 0.9; }
+    main { max-width: 640px; margin: 40px auto; padding: 0 20px; }
+    .card { background: white; border-radius: 12px; padding: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin-bottom: 20px; }
+    h2 { color: #0D7377; margin-top: 0; }
+    a.btn { display: inline-block; background: #0D7377; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 8px 8px 0 0; }
+    a.btn.secondary { background: #E85D04; }
+    a.btn:hover { opacity: 0.9; }
+    ul { line-height: 1.8; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Hama Enterprise Ng</h1>
+    <p>Live Chat Support System &nbsp;•&nbsp; RC 8827959</p>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Welcome</h2>
+      <p>This is the live chat support system for Hama Enterprise Ng (Painting, Interior &amp; Exterior Design).</p>
+      <p>
+        <a class="btn" href="/dashboard">Agent Dashboard</a>
+        <a class="btn secondary" href="/widget-demo.html">Customer Widget Demo</a>
+      </p>
+    </div>
+    <div class="card">
+      <h2>Quick Links</h2>
+      <ul>
+        <li><strong>Agent Dashboard:</strong> <a href="/dashboard">/dashboard</a> (login required)</li>
+        <li><strong>Widget Demo:</strong> <a href="/widget-demo.html">/widget-demo.html</a></li>
+        <li><strong>Health Check:</strong> <a href="/api/health">/api/health</a></li>
+      </ul>
+      <p style="font-size:14px;color:#64748b;margin-top:16px;">Default admin login: <code>admin</code> / <code>admin123</code> (change after first login)</p>
+    </div>
+  </main>
+  <script src="/widget.js"></script>
+</body>
+</html>`);
 });
 
 app.get(['/dashboard', '/dashboard/*'], (req, res) => {
@@ -286,6 +339,7 @@ function handleBotReply(chatId, userMessage) {
 
 server.listen(PORT, () => {
   console.log(`\nHama Enterprise Ng Chat Support running on port ${PORT}`);
+  console.log(`Homepage:        http://localhost:${PORT}/`);
   console.log(`Agent Dashboard: http://localhost:${PORT}/dashboard`);
   console.log(`Widget demo:     http://localhost:${PORT}/widget-demo.html`);
 });
