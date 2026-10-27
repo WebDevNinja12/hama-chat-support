@@ -79,6 +79,11 @@
     .form-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
     .form-row input, .form-row select, .form-row textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
     .form-row button { padding: 8px 14px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .seed-box { background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 10px; padding: 16px; margin-bottom: 24px; }
+    .seed-box h3 { margin: 0 0 8px; color: #92400E; }
+    .seed-box p { margin: 0 0 12px; font-size: 13px; color: #78350F; }
+    .seed-box button { background: #E85D04; color: white; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .seed-box button:disabled { opacity: 0.6; cursor: not-allowed; }
     .alert-dot { width: 10px; height: 10px; background: var(--accent); border-radius: 50%; display: inline-block; animation: pulse 1s infinite; }
     @keyframes pulse { 50% { opacity: 0.4; } }
   </style>
@@ -117,6 +122,14 @@
       <div class="chat-panel empty" id="chat-panel"><p>Select a chat to begin</p></div>
       <div class="admin-panel" id="admin-panel">
         <h2>Admin Settings</h2>
+
+        <div class="seed-box">
+          <h3>Seed Database</h3>
+          <p>Creates the default admin account, sample agent, and knowledge base entries. Safe to run multiple times.</p>
+          <button id="btn-seed">Run Seed Now</button>
+          <div id="seed-result" style="margin-top:10px;font-size:13px;"></div>
+        </div>
+
         <div class="stats" id="stats"></div>
         <h3 style="margin:20px 0 10px;">Greeting Message</h3>
         <div class="form-row">
@@ -322,6 +335,29 @@
         '</td></tr>'
       ).join('');
     }
+
+    // Seed button
+    document.getElementById('btn-seed').onclick = async () => {
+      const btn = document.getElementById('btn-seed');
+      const resultEl = document.getElementById('seed-result');
+      btn.disabled = true;
+      btn.textContent = 'Seeding...';
+      resultEl.textContent = '';
+      try {
+        const res = await fetch('/api/admin/seed', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Seed failed');
+        resultEl.innerHTML = '<strong style="color:#059669;">Success!</strong><br>' + (data.messages || []).join('<br>');
+        loadAdmin();
+      } catch (e) {
+        resultEl.innerHTML = '<strong style="color:#DC2626;">Error:</strong> ' + e.message;
+      }
+      btn.disabled = false;
+      btn.textContent = 'Run Seed Now';
+    };
 
     window.deleteKb = async (id) => {
       if (!confirm('Delete this entry?')) return;
