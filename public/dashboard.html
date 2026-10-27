@@ -76,14 +76,15 @@
     table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
     th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
     th { background: #F9FAFB; font-weight: 600; }
-    .form-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .form-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
     .form-row input, .form-row select, .form-row textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
     .form-row button { padding: 8px 14px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .card-box { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+    .card-box h3 { margin: 0 0 12px; font-size: 15px; }
     .seed-box { background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 10px; padding: 16px; margin-bottom: 24px; }
     .seed-box h3 { margin: 0 0 8px; color: #92400E; }
     .seed-box p { margin: 0 0 12px; font-size: 13px; color: #78350F; }
     .seed-box button { background: #E85D04; color: white; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-    .seed-box button:disabled { opacity: 0.6; cursor: not-allowed; }
     .alert-dot { width: 10px; height: 10px; background: var(--accent); border-radius: 50%; display: inline-block; animation: pulse 1s infinite; }
     @keyframes pulse { 50% { opacity: 0.4; } }
   </style>
@@ -92,7 +93,7 @@
   <div id="login-screen">
     <div class="login-card">
       <h1>Hama Enterprise Ng</h1>
-      <p>Support Agent Dashboard</p>
+      <p>Staff login only — customers use the chat widget</p>
       <div class="error" id="login-error"></div>
       <label>Username</label>
       <input type="text" id="login-user" placeholder="admin" autocomplete="username" />
@@ -108,6 +109,7 @@
         <span id="user-name"></span>
         <button id="btn-admin" style="display:none;">Admin</button>
         <button id="btn-chats">Chats</button>
+        <button id="btn-password">Change Password</button>
         <button id="logout-btn">Logout</button>
       </div>
     </header>
@@ -125,17 +127,30 @@
 
         <div class="seed-box">
           <h3>Seed Database</h3>
-          <p>Creates the default admin account, sample agent, and knowledge base entries. Safe to run multiple times.</p>
+          <p>Creates default admin/agent if missing. Safe to run multiple times.</p>
           <button id="btn-seed">Run Seed Now</button>
           <div id="seed-result" style="margin-top:10px;font-size:13px;"></div>
         </div>
 
         <div class="stats" id="stats"></div>
+
+        <div class="card-box">
+          <h3>Change My Password</h3>
+          <div class="form-row">
+            <input type="password" id="cur-pass" placeholder="Current password" />
+            <input type="password" id="new-pass" placeholder="New password (min 6)" />
+            <input type="password" id="new-pass2" placeholder="Confirm new password" />
+            <button id="btn-change-pass">Update Password</button>
+          </div>
+          <div id="pass-result" style="font-size:13px;margin-top:6px;"></div>
+        </div>
+
         <h3 style="margin:20px 0 10px;">Greeting Message</h3>
         <div class="form-row">
           <textarea id="setting-greeting" rows="2" style="flex:1;min-width:200px;"></textarea>
           <button id="save-greeting">Save</button>
         </div>
+
         <h3 style="margin:20px 0 10px;">Knowledge Base</h3>
         <div class="form-row">
           <input id="kb-cat" placeholder="Category" style="width:120px;" />
@@ -147,7 +162,9 @@
           <thead><tr><th>Category</th><th>Keywords</th><th>Answer</th><th></th></tr></thead>
           <tbody id="kb-body"></tbody>
         </table>
+
         <h3 style="margin:24px 0 10px;">Agents</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:10px;">Passwords are hashed and cannot be viewed. Use <strong>Reset</strong> to set a new password for an agent.</p>
         <div class="form-row">
           <input id="ag-user" placeholder="Username" />
           <input id="ag-pass" placeholder="Password" type="password" />
@@ -156,9 +173,22 @@
           <button id="ag-add">Add Agent</button>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Online</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Online</th><th>Actions</th></tr></thead>
           <tbody id="agents-body"></tbody>
         </table>
+      </div>
+
+      <div class="admin-panel" id="password-panel" style="display:none;">
+        <h2>Change Password</h2>
+        <div class="card-box">
+          <div class="form-row">
+            <input type="password" id="cur-pass2" placeholder="Current password" />
+            <input type="password" id="new-pass2a" placeholder="New password (min 6)" />
+            <input type="password" id="new-pass2b" placeholder="Confirm new password" />
+            <button id="btn-change-pass2">Update Password</button>
+          </div>
+          <div id="pass-result2" style="font-size:13px;margin-top:6px;"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -308,9 +338,21 @@
     window.toBot = (id) => socket.emit('chat:to-bot', { chatId: id });
     window.resolveChat = (id) => socket.emit('chat:resolve', { chatId: id });
 
-    async function loadAdmin() {
+    function hideAllPanels() {
       document.getElementById('sidebar').style.display = 'none';
       document.getElementById('chat-panel').style.display = 'none';
+      document.getElementById('admin-panel').style.display = 'none';
+      document.getElementById('password-panel').style.display = 'none';
+    }
+
+    function showChats() {
+      hideAllPanels();
+      document.getElementById('sidebar').style.display = 'flex';
+      document.getElementById('chat-panel').style.display = 'flex';
+    }
+
+    async function loadAdmin() {
+      hideAllPanels();
       document.getElementById('admin-panel').style.display = 'block';
       const headers = { Authorization: 'Bearer ' + token };
       const stats = await (await fetch('/api/admin/stats', { headers })).json();
@@ -330,24 +372,63 @@
       const agents = await (await fetch('/api/admin/agents', { headers })).json();
       document.getElementById('agents-body').innerHTML = agents.map(a =>
         '<tr><td>' + esc(a.name) + '</td><td>' + esc(a.username) + '</td><td>' + a.role + '</td><td>' +
-        (a.online ? 'Online' : 'Offline') + '</td><td>' + (a.id !== user.id ?
-        '<button onclick="deleteAgent(' + a.id + ')" style="color:var(--danger);border:none;background:none;cursor:pointer;">Remove</button>' : '') +
+        (a.online ? 'Online' : 'Offline') + '</td><td>' +
+        (a.id !== user.id ? '<button onclick="resetAgentPass(' + a.id + ',\'' + esc(a.username) + '\')" style="margin-right:8px;cursor:pointer;">Reset password</button>' +
+        '<button onclick="deleteAgent(' + a.id + ')" style="color:var(--danger);border:none;background:none;cursor:pointer;">Remove</button>' : '—') +
         '</td></tr>'
       ).join('');
     }
 
-    // Seed button
+    async function doChangePassword(curId, newId, confId, resultId) {
+      const currentPassword = document.getElementById(curId).value;
+      const newPassword = document.getElementById(newId).value;
+      const confirm = document.getElementById(confId).value;
+      const resultEl = document.getElementById(resultId);
+      if (newPassword !== confirm) {
+        resultEl.innerHTML = '<span style="color:#DC2626;">New passwords do not match</span>';
+        return;
+      }
+      if (newPassword.length < 6) {
+        resultEl.innerHTML = '<span style="color:#DC2626;">Password must be at least 6 characters</span>';
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        resultEl.innerHTML = '<span style="color:#059669;">Password updated successfully</span>';
+        document.getElementById(curId).value = '';
+        document.getElementById(newId).value = '';
+        document.getElementById(confId).value = '';
+      } catch (e) {
+        resultEl.innerHTML = '<span style="color:#DC2626;">' + e.message + '</span>';
+      }
+    }
+
+    window.resetAgentPass = async (id, username) => {
+      const newPassword = prompt('Enter new password for ' + username + ' (min 6 characters):');
+      if (!newPassword) return;
+      if (newPassword.length < 6) return alert('Password must be at least 6 characters');
+      const res = await fetch('/api/admin/agents/' + id + '/reset-password', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) return alert(data.error || 'Failed');
+      alert(data.message || 'Password reset');
+    };
+
     document.getElementById('btn-seed').onclick = async () => {
       const btn = document.getElementById('btn-seed');
       const resultEl = document.getElementById('seed-result');
       btn.disabled = true;
-      btn.textContent = 'Seeding...';
-      resultEl.textContent = '';
       try {
-        const res = await fetch('/api/admin/seed', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + token }
-        });
+        const res = await fetch('/api/admin/seed', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Seed failed');
         resultEl.innerHTML = '<strong style="color:#059669;">Success!</strong><br>' + (data.messages || []).join('<br>');
@@ -356,7 +437,6 @@
         resultEl.innerHTML = '<strong style="color:#DC2626;">Error:</strong> ' + e.message;
       }
       btn.disabled = false;
-      btn.textContent = 'Run Seed Now';
     };
 
     window.deleteKb = async (id) => {
@@ -369,6 +449,9 @@
       await fetch('/api/admin/agents/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
       loadAdmin();
     };
+
+    document.getElementById('btn-change-pass').onclick = () => doChangePassword('cur-pass', 'new-pass', 'new-pass2', 'pass-result');
+    document.getElementById('btn-change-pass2').onclick = () => doChangePassword('cur-pass2', 'new-pass2a', 'new-pass2b', 'pass-result2');
 
     document.getElementById('save-greeting').onclick = async () => {
       await fetch('/api/admin/settings', {
@@ -419,10 +502,10 @@
     document.getElementById('login-pass').onkeydown = (e) => { if (e.key === 'Enter') login(); };
     document.getElementById('logout-btn').onclick = logout;
     document.getElementById('btn-admin').onclick = loadAdmin;
-    document.getElementById('btn-chats').onclick = () => {
-      document.getElementById('admin-panel').style.display = 'none';
-      document.getElementById('sidebar').style.display = 'flex';
-      document.getElementById('chat-panel').style.display = 'flex';
+    document.getElementById('btn-chats').onclick = showChats;
+    document.getElementById('btn-password').onclick = () => {
+      hideAllPanels();
+      document.getElementById('password-panel').style.display = 'block';
     };
     document.querySelectorAll('.sidebar-tabs button').forEach(btn => {
       btn.onclick = () => {
