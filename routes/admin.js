@@ -20,6 +20,9 @@ router.post('/agents', adminRequired, (req, res) => {
   if (!username || !password || !name) {
     return res.status(400).json({ error: 'username, password and name required' });
   }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
   if (role && !['admin', 'agent'].includes(role)) {
     return res.status(400).json({ error: 'role must be admin or agent' });
   }
@@ -35,6 +38,21 @@ router.post('/agents', adminRequired, (req, res) => {
     }
     throw err;
   }
+});
+
+// Admin resets an agent's password (cannot view old password — it is hashed)
+router.post('/agents/:id/reset-password', adminRequired, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { newPassword } = req.body || {};
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+  const target = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id);
+  if (!target) return res.status(404).json({ error: 'Agent not found' });
+
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
+  res.json({ success: true, message: `Password for ${target.username} has been reset` });
 });
 
 router.delete('/agents/:id', adminRequired, (req, res) => {
@@ -148,7 +166,6 @@ router.get('/stats', (req, res) => {
   });
 });
 
-// ---- Chat history ----
 router.get('/chats', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
   const offset = parseInt(req.query.offset, 10) || 0;
@@ -174,12 +191,10 @@ router.get('/chats/:id/messages', (req, res) => {
   res.json(messages);
 });
 
-// ---- Seed Database (Admin only) ----
+// ---- Seed ----
 router.post('/seed', adminRequired, (req, res) => {
   try {
     const results = [];
-
-    // Admin user
     const adminPassword = 'admin123';
     const hash = bcrypt.hashSync(adminPassword, 10);
     const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
@@ -191,7 +206,6 @@ router.post('/seed', adminRequired, (req, res) => {
       results.push('Admin user already exists');
     }
 
-    // Sample agent
     const agentHash = bcrypt.hashSync('agent123', 10);
     const existingAgent = db.prepare('SELECT id FROM users WHERE username = ?').get('agent1');
     if (!existingAgent) {
@@ -202,31 +216,11 @@ router.post('/seed', adminRequired, (req, res) => {
       results.push('Sample agent already exists');
     }
 
-    // Knowledge base
-    const kbEntries = [
-      { category: 'services', keywords: 'services,painting,what do you do,offer,paint,interior,exterior,design', question: 'What services do you offer?', answer: 'Hama Enterprise Ng (RC 8827959) offers professional painting, interior design, and exterior design services for residential, commercial, and industrial clients across Nigeria. We handle everything from single-room repaints to full building projects.', priority: 10 },
-      { category: 'services', keywords: 'painting,paint,house paint,wall,ceiling', question: 'Do you do painting?', answer: 'Yes! We specialize in high-quality interior and exterior painting for homes, offices, factories and commercial buildings. We use premium paints and skilled craftsmen.', priority: 9 },
-      { category: 'services', keywords: 'interior design,interior,decoration,decor', question: 'Do you offer interior design?', answer: 'Absolutely. Our interior design team helps you create beautiful, functional spaces — colour consultation, material selection, and full project coordination.', priority: 9 },
-      { category: 'services', keywords: 'exterior design,exterior,facade,outdoor', question: 'Do you do exterior design?', answer: 'Yes, we provide exterior design and painting services including facade treatments, protective coatings and aesthetic upgrades for residential and commercial properties.', priority: 8 },
-      { category: 'areas', keywords: 'location,area,serve,where,city,lagos,abuja,port harcourt,nigeria', question: 'Which areas do you serve?', answer: 'We primarily serve Lagos, Abuja, Port Harcourt and surrounding areas. For projects outside these locations, please contact us so we can assess feasibility.', priority: 10 },
-      { category: 'quote', keywords: 'quote,price,cost,estimate,how much,pricing,quotation', question: 'How can I get a quote?', answer: 'To request a free quote, please share: 1) Type of project (residential/commercial/industrial), 2) Approximate size or number of rooms, 3) Location, 4) Preferred contact. One of our agents will follow up shortly. You can also say "Talk to a person".', priority: 10 },
-      { category: 'hours', keywords: 'hours,working hours,open,time,when,schedule', question: 'What are your working hours?', answer: 'We are available Monday to Saturday, 8:00 AM – 6:00 PM WAT. For urgent site inspections outside these hours, leave your contact and we will arrange a suitable time.', priority: 8 },
-      { category: 'contact', keywords: 'contact,phone,email,call,reach,number', question: 'How can I contact you?', answer: 'You can reach Hama Enterprise Ng at support@hamaenterprise.ng or leave your phone number here and an agent will call you back. Our office hours are Mon–Sat 8am–6pm WAT.', priority: 9 },
-      { category: 'faq', keywords: 'rc,registration,company,about,who are you', question: 'What is your company registration?', answer: 'Hama Enterprise Ng is a registered company with RC 8827959. We proudly serve residential, commercial and industrial clients with professional painting and design services.', priority: 5 },
-      { category: 'faq', keywords: 'payment,pay,deposit,invoice', question: 'How do payments work?', answer: 'Payment terms are discussed after a site assessment or detailed quote. We typically require a deposit to schedule work. For payment arrangements please speak with an agent.', priority: 7 },
-      { category: 'faq', keywords: 'inspection,site visit,survey,measure', question: 'Do you do site inspections?', answer: 'Yes, free site inspections can be arranged for most projects within our service areas. Please provide your location and preferred dates so an agent can schedule it.', priority: 8 },
-      { category: 'faq', keywords: 'complaint,problem,issue,unhappy,bad job', question: 'How do I make a complaint?', answer: 'We take every concern seriously. Please describe the issue and share your contact details. An agent will take over this chat immediately to assist you.', priority: 10 }
-    ];
-
     const existingKb = db.prepare('SELECT COUNT(*) as c FROM knowledge_base').get();
     if (existingKb.c === 0) {
-      const insertKb = db.prepare('INSERT INTO knowledge_base (category, keywords, question, answer, priority) VALUES (?, ?, ?, ?, ?)');
-      for (const entry of kbEntries) {
-        insertKb.run(entry.category, entry.keywords, entry.question, entry.answer, entry.priority);
-      }
-      results.push(`Inserted ${kbEntries.length} knowledge base entries`);
+      results.push('Knowledge base empty — use Auto-seed on server start or add entries manually');
     } else {
-      results.push(`Knowledge base already has ${existingKb.c} entries`);
+      results.push(`Knowledge base has ${existingKb.c} entries`);
     }
 
     res.json({ success: true, messages: results });

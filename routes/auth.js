@@ -23,7 +23,6 @@ router.post('/login', loginLimiter, (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  // Mark online
   db.prepare('UPDATE users SET online = 1 WHERE id = ?').run(user.id);
 
   const token = generateToken(user);
@@ -45,6 +44,26 @@ router.post('/logout', authRequired, (req, res) => {
 
 router.get('/me', authRequired, (req, res) => {
   res.json({ user: req.user });
+});
+
+// Change own password (any logged-in staff)
+router.post('/change-password', authRequired, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password required' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, user.id);
+  res.json({ success: true, message: 'Password updated successfully' });
 });
 
 module.exports = router;
