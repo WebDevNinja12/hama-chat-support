@@ -13,6 +13,7 @@ const { socketAuth } = require('./middleware/auth');
 const bot = require('./utils/bot');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const documentRoutes = require('./routes/documents');
 
 const app = express();
 const server = http.createServer(app);
@@ -30,17 +31,16 @@ app.use(express.urlencoded({ extended: true }));
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
 app.use('/api/', apiLimiter);
 
-// Serve static files from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/documents', documentRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', company: 'Hama Enterprise Ng', time: new Date().toISOString() });
 });
 
-// Homepage - simple landing page so root URL does not show "Cannot GET"
 app.get('/', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -70,20 +70,11 @@ app.get('/', (req, res) => {
   <main>
     <div class="card">
       <h2>Welcome</h2>
-      <p>This is the live chat support system for Hama Enterprise Ng (Painting, Interior &amp; Exterior Design).</p>
+      <p>Painting, interior and exterior design support for residential, commercial and industrial clients.</p>
       <p>
-        <a class="btn" href="/dashboard">Agent Dashboard</a>
-        <a class="btn secondary" href="/widget-demo.html">Customer Widget Demo</a>
+        <a class="btn secondary" href="/widget-demo.html">Open chat demo</a>
       </p>
-    </div>
-    <div class="card">
-      <h2>Quick Links</h2>
-      <ul>
-        <li><strong>Agent Dashboard:</strong> <a href="/dashboard">/dashboard</a> (login required)</li>
-        <li><strong>Widget Demo:</strong> <a href="/widget-demo.html">/widget-demo.html</a></li>
-        <li><strong>Health Check:</strong> <a href="/api/health">/api/health</a></li>
-      </ul>
-      <p style="font-size:14px;color:#64748b;margin-top:16px;">Default admin login: <code>admin</code> / <code>admin123</code> (change after first login)</p>
+      <p style="font-size:13px;color:#64748b;margin-top:16px;">Staff only: <a href="/dashboard">Agent dashboard</a></p>
     </div>
   </main>
   <script src="/widget.js"></script>
@@ -182,7 +173,7 @@ io.on('connection', (socket) => {
       }
 
       if (!isAgent && chat.status === 'bot') {
-        handleBotReply(chatId, content.trim());
+        handleBotReply(chatId, content.trim()).catch(err => console.error('bot reply error', err));
       }
 
       cb?.({ success: true, message });
@@ -219,7 +210,7 @@ io.on('connection', (socket) => {
       .run(socket.user.id, socket.user.name, chatId);
 
     const sysMsg = `Agent ${socket.user.name} has joined the chat.`;
-    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`) .run(chatId, sysMsg);
+    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`).run(chatId, sysMsg);
 
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to(`chat:${chatId}`).emit('chat:updated', updated);
@@ -234,7 +225,7 @@ io.on('connection', (socket) => {
     if (!socket.user) return cb?.({ error: 'Unauthorized' });
     db.prepare(`UPDATE chats SET status = 'bot', agent_id = NULL, agent_name = NULL, updated_at = datetime('now') WHERE id = ?`).run(chatId);
     const sysMsg = 'Chat returned to automated support.';
-    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`) .run(chatId, sysMsg);
+    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`).run(chatId, sysMsg);
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to(`chat:${chatId}`).emit('chat:updated', updated);
     io.to('agents').emit('chat:updated', updated);
@@ -250,7 +241,7 @@ io.on('connection', (socket) => {
       .run(target.id, target.name, chatId);
 
     const sysMsg = `Chat transferred to ${target.name}.`;
-    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`) .run(chatId, sysMsg);
+    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`).run(chatId, sysMsg);
 
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to(`chat:${chatId}`).emit('chat:updated', updated);
@@ -265,7 +256,7 @@ io.on('connection', (socket) => {
     if (!socket.user) return cb?.({ error: 'Unauthorized' });
     db.prepare(`UPDATE chats SET status = 'resolved', updated_at = datetime('now') WHERE id = ?`).run(chatId);
     const sysMsg = 'This chat has been marked as resolved. Thank you for contacting Hama Enterprise Ng!';
-    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`) .run(chatId, sysMsg);
+    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`).run(chatId, sysMsg);
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to(`chat:${chatId}`).emit('chat:updated', updated);
     io.to('agents').emit('chat:updated', updated);
@@ -284,7 +275,7 @@ io.on('connection', (socket) => {
 
   socket.on('customer:offline-contact', (data, cb) => {
     const { chatId, name, contact, message } = data || {};
-    db.prepare(`INSERT INTO offline_requests (chat_id, customer_name, contact, message) VALUES (?, ?, ?, ?)`) 
+    db.prepare(`INSERT INTO offline_requests (chat_id, customer_name, contact, message) VALUES (?, ?, ?, ?)`)
       .run(chatId || null, name || null, contact || null, message || null);
     io.to('agents').emit('offline:request', { name, contact, message, created_at: new Date().toISOString() });
     cb?.({ success: true, message: 'Thank you. Our team will contact you soon.' });
@@ -299,18 +290,26 @@ io.on('connection', (socket) => {
   });
 });
 
-function handleBotReply(chatId, userMessage) {
+async function handleBotReply(chatId, userMessage) {
   const history = db.prepare('SELECT sender_type, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 10').all(chatId).reverse();
-  const reply = bot.getBotReply(userMessage, history);
+  const reply = await bot.getBotReply(userMessage, history);
+
+  const sourceLabel = reply.source
+    ? (reply.sourceType === 'qa' ? `Q&A: ${reply.source}` : reply.source)
+    : null;
 
   if (reply.type === 'escalate') {
     db.prepare(`UPDATE chats SET status = 'needs_attention', updated_at = datetime('now') WHERE id = ?`).run(chatId);
 
-    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'bot', 'Hama Support Bot', ?)`) 
-      .run(chatId, reply.message);
+    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content, source_label) VALUES (?, 'bot', 'Hama Support Bot', ?, ?)`) 
+      .run(chatId, reply.message, sourceLabel);
 
-    const message = { chat_id: chatId, sender_type: 'bot', sender_name: 'Hama Support Bot', content: reply.message, created_at: new Date().toISOString() };
+    const message = {
+      chat_id: chatId, sender_type: 'bot', sender_name: 'Hama Support Bot',
+      content: reply.message, source_label: sourceLabel, created_at: new Date().toISOString()
+    };
     io.to(`chat:${chatId}`).emit('message:new', message);
+    io.to('agents').emit('message:new', { ...message, chatId });
 
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to('agents').emit('chat:updated', updated);
@@ -319,27 +318,34 @@ function handleBotReply(chatId, userMessage) {
     const onlineAgents = db.prepare('SELECT COUNT(*) as c FROM users WHERE online = 1 AND role IN ("admin","agent")').get().c;
     if (onlineAgents === 0) {
       const offlineMsg = 'No agents are currently online. Please leave your phone or email and we will get back to you as soon as possible.';
-      db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'bot', 'Hama Support Bot', ?)`) .run(chatId, offlineMsg);
+      db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'bot', 'Hama Support Bot', ?)`).run(chatId, offlineMsg);
       io.to(`chat:${chatId}`).emit('message:new', {
         chat_id: chatId, sender_type: 'bot', sender_name: 'Hama Support Bot', content: offlineMsg, created_at: new Date().toISOString()
       });
       io.to(`chat:${chatId}`).emit('show:offline-form');
     }
   } else {
-    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'bot', 'Hama Support Bot', ?)`) 
-      .run(chatId, reply.message);
+    // answer or miss (rephrase)
+    db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content, source_label) VALUES (?, 'bot', 'Hama Support Bot', ?, ?)`) 
+      .run(chatId, reply.message, sourceLabel);
 
     const message = {
-      chat_id: chatId, sender_type: 'bot', sender_name: 'Hama Support Bot', content: reply.message,
+      chat_id: chatId, sender_type: 'bot', sender_name: 'Hama Support Bot',
+      content: reply.message, source_label: sourceLabel,
       created_at: new Date().toISOString(), quickReplies: reply.quickReplies
     };
-    io.to(`chat:${chatId}`).emit('message:new', message);
+    // Visitors never see source_label; agents do via dashboard
+    io.to(`chat:${chatId}`).emit('message:new', {
+      ...message,
+      source_label: undefined
+    });
+    io.to('agents').emit('message:new', { ...message, chatId });
   }
 }
 
 server.listen(PORT, () => {
   console.log(`\nHama Enterprise Ng Chat Support running on port ${PORT}`);
+  console.log(`DATA_DIR: ${process.env.DATA_DIR || './data'}`);
   console.log(`Homepage:        http://localhost:${PORT}/`);
   console.log(`Agent Dashboard: http://localhost:${PORT}/dashboard`);
-  console.log(`Widget demo:     http://localhost:${PORT}/widget-demo.html`);
 });
