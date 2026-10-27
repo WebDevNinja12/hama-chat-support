@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hama Enterprise Ng – Support Dashboard</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    :root {
+      --primary: #0D7377; --primary-dark: #095456; --accent: #E85D04;
+      --bg: #F3F4F6; --card: #FFFFFF; --text: #1F2937; --muted: #6B7280;
+      --border: #E5E7EB; --danger: #DC2626; --success: #059669;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+    #login-screen { display: flex; align-items: center; justify-content: center; height: 100vh; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
+    .login-card { background: white; padding: 40px; border-radius: 16px; width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+    .login-card h1 { font-size: 22px; margin-bottom: 4px; color: var(--primary); }
+    .login-card p { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
+    .login-card label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .login-card input { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; font-size: 15px; }
+    .login-card button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .login-card button:hover { background: var(--primary-dark); }
+    .error { color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none; }
+    #app { display: none; height: 100vh; flex-direction: column; }
+    header { background: var(--primary); color: white; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 18px; font-weight: 600; }
+    header .user-info { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+    header button { background: rgba(255,255,255,0.15); border: none; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .sidebar { width: 320px; background: var(--card); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+    .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }
+    .sidebar-tabs button { flex: 1; padding: 12px; border: none; background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .sidebar-tabs button.active { color: var(--primary); border-bottom: 2px solid var(--primary); }
+    .chat-list { flex: 1; overflow-y: auto; }
+    .chat-item { padding: 14px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .chat-item:hover, .chat-item.active { background: #F0FDFA; }
+    .chat-item.needs_attention { border-left: 4px solid var(--accent); background: #FFF7ED; }
+    .chat-item .name { font-weight: 600; font-size: 14px; }
+    .chat-item .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .status-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; margin-top: 4px; }
+    .status-bot { background: #E0E7FF; color: #3730A3; }
+    .status-needs_attention { background: #FFEDD5; color: #9A3412; }
+    .status-with_agent { background: #D1FAE5; color: #065F46; }
+    .status-resolved { background: #F3F4F6; color: #4B5563; }
+    .chat-panel { flex: 1; display: flex; flex-direction: column; background: #F9FAFB; }
+    .chat-panel.empty { align-items: center; justify-content: center; color: var(--muted); }
+    .chat-header { background: white; padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .chat-header h2 { font-size: 16px; }
+    .chat-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chat-actions button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: white; cursor: pointer; font-size: 12px; font-weight: 500; }
+    .chat-actions button.primary { background: var(--primary); color: white; border-color: var(--primary); }
+    .chat-actions button.danger { background: var(--danger); color: white; border-color: var(--danger); }
+    .messages { flex: 1; overflow-y: auto; padding: 20px; }
+    .msg { margin-bottom: 14px; max-width: 70%; }
+    .msg.customer { margin-right: auto; }
+    .msg.agent, .msg.bot, .msg.system { margin-left: auto; }
+    .msg .bubble { padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
+    .msg.customer .bubble { background: white; border: 1px solid var(--border); }
+    .msg.bot .bubble { background: #F0FDFA; }
+    .msg.agent .bubble { background: var(--primary); color: white; }
+    .msg.system .bubble { background: #FEF3C7; color: #92400E; font-size: 13px; text-align: center; }
+    .msg .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .msg.agent .meta, .msg.bot .meta, .msg.system .meta { text-align: right; }
+    .msg.internal .bubble { background: #FCE7F3; border: 1px dashed #DB2777; color: #9D174D; }
+    .compose { background: white; padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .compose textarea { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px; resize: none; height: 44px; font-family: inherit; min-width: 180px; }
+    .compose button { padding: 10px 18px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .compose label { font-size: 12px; display: flex; align-items: center; gap: 4px; color: var(--muted); }
+    .admin-panel { flex: 1; overflow-y: auto; padding: 24px; display: none; }
+    .admin-panel h2 { margin-bottom: 16px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: white; padding: 16px; border-radius: 10px; border: 1px solid var(--border); }
+    .stat-card .num { font-size: 28px; font-weight: 700; color: var(--primary); }
+    .stat-card .label { font-size: 12px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+    th { background: #F9FAFB; font-weight: 600; }
+    .form-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .form-row input, .form-row select, .form-row textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+    .form-row button { padding: 8px 14px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .alert-dot { width: 10px; height: 10px; background: var(--accent); border-radius: 50%; display: inline-block; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.4; } }
+  </style>
+</head>
+<body>
+  <div id="login-screen">
+    <div class="login-card">
+      <h1>Hama Enterprise Ng</h1>
+      <p>Support Agent Dashboard</p>
+      <div class="error" id="login-error"></div>
+      <label>Username</label>
+      <input type="text" id="login-user" placeholder="admin" autocomplete="username" />
+      <label>Password</label>
+      <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" />
+      <button id="login-btn">Sign In</button>
+    </div>
+  </div>
+  <div id="app">
+    <header>
+      <h1>Hama Support</h1>
+      <div class="user-info">
+        <span id="user-name"></span>
+        <button id="btn-admin" style="display:none;">Admin</button>
+        <button id="btn-chats">Chats</button>
+        <button id="logout-btn">Logout</button>
+      </div>
+    </header>
+    <div class="main">
+      <div class="sidebar" id="sidebar">
+        <div class="sidebar-tabs">
+          <button class="active" data-filter="open">Open</button>
+          <button data-filter="all">All</button>
+        </div>
+        <div class="chat-list" id="chat-list"></div>
+      </div>
+      <div class="chat-panel empty" id="chat-panel"><p>Select a chat to begin</p></div>
+      <div class="admin-panel" id="admin-panel">
+        <h2>Admin Settings</h2>
+        <div class="stats" id="stats"></div>
+        <h3 style="margin:20px 0 10px;">Greeting Message</h3>
+        <div class="form-row">
+          <textarea id="setting-greeting" rows="2" style="flex:1;min-width:200px;"></textarea>
+          <button id="save-greeting">Save</button>
+        </div>
+        <h3 style="margin:20px 0 10px;">Knowledge Base</h3>
+        <div class="form-row">
+          <input id="kb-cat" placeholder="Category" style="width:120px;" />
+          <input id="kb-keywords" placeholder="keywords,comma,separated" style="flex:1;" />
+          <input id="kb-answer" placeholder="Answer text" style="flex:2;" />
+          <button id="kb-add">Add</button>
+        </div>
+        <table>
+          <thead><tr><th>Category</th><th>Keywords</th><th>Answer</th><th></th></tr></thead>
+          <tbody id="kb-body"></tbody>
+        </table>
+        <h3 style="margin:24px 0 10px;">Agents</h3>
+        <div class="form-row">
+          <input id="ag-user" placeholder="Username" />
+          <input id="ag-pass" placeholder="Password" type="password" />
+          <input id="ag-name" placeholder="Full name" />
+          <select id="ag-role"><option value="agent">Agent</option><option value="admin">Admin</option></select>
+          <button id="ag-add">Add Agent</button>
+        </div>
+        <table>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Online</th><th></th></tr></thead>
+          <tbody id="agents-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <script>
+    let token = localStorage.getItem('hama_token');
+    let user = null;
+    let socket = null;
+    let chats = {};
+    let currentChatId = null;
+    let filter = 'open';
+
+    async function login() {
+      const username = document.getElementById('login-user').value.trim();
+      const password = document.getElementById('login-pass').value;
+      const errEl = document.getElementById('login-error');
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+        token = data.token;
+        user = data.user;
+        localStorage.setItem('hama_token', token);
+        localStorage.setItem('hama_user', JSON.stringify(user));
+        showApp();
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    function logout() {
+      fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+      localStorage.clear();
+      location.reload();
+    }
+
+    function showApp() {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      document.getElementById('user-name').textContent = user.name + (user.role === 'admin' ? ' (Admin)' : '');
+      if (user.role === 'admin') document.getElementById('btn-admin').style.display = 'inline-block';
+      connectSocket();
+    }
+
+    function connectSocket() {
+      socket = io({ auth: { token } });
+      socket.on('chats:list', (list) => { list.forEach(c => { chats[c.id] = c; }); renderChatList(); });
+      socket.on('chat:new', (chat) => { chats[chat.id] = chat; renderChatList(); });
+      socket.on('chat:updated', (chat) => {
+        chats[chat.id] = chat; renderChatList();
+        if (currentChatId === chat.id) renderChatPanel(chat.id);
+      });
+      socket.on('chat:escalated', (chat) => {
+        chats[chat.id] = chat; renderChatList();
+        if (Notification.permission === 'granted') {
+          new Notification('Hama Support', { body: 'Escalated chat from ' + chat.customer_name });
+        }
+      });
+      socket.on('message:new', (msg) => {
+        const cid = msg.chat_id || msg.chatId;
+        if (currentChatId === cid) appendMsg(msg);
+      });
+    }
+
+    function renderChatList() {
+      const list = Object.values(chats)
+        .filter(c => filter === 'all' || c.status !== 'resolved')
+        .sort((a, b) => {
+          const order = { needs_attention: 0, with_agent: 1, bot: 2, resolved: 3 };
+          return (order[a.status] ?? 9) - (order[b.status] ?? 9) || new Date(b.updated_at) - new Date(a.updated_at);
+        });
+      const el = document.getElementById('chat-list');
+      el.innerHTML = list.map(c => `
+        <div class="chat-item ${c.status} ${currentChatId === c.id ? 'active' : ''}" data-id="${c.id}">
+          <div class="name">${esc(c.customer_name || 'Unknown')} ${c.status === 'needs_attention' ? '<span class="alert-dot"></span>' : ''}</div>
+          <div class="meta">${esc(c.customer_contact || '')} · ${timeAgo(c.updated_at)}</div>
+          <span class="status-badge status-${c.status}">${c.status.replace('_', ' ')}</span>
+          ${c.agent_name ? '<div class="meta">Agent: ' + esc(c.agent_name) + '</div>' : ''}
+        </div>
+      `).join('') || '<p style="padding:20px;color:#6B7280;font-size:13px;">No chats yet</p>';
+      el.querySelectorAll('.chat-item').forEach(item => { item.onclick = () => openChat(item.dataset.id); });
+    }
+
+    function openChat(id) {
+      currentChatId = id;
+      socket.emit('chat:join', { chatId: id });
+      socket.emit('chat:history', { chatId: id }, (res) => {
+        if (res.error) return alert(res.error);
+        chats[id] = res.chat;
+        renderChatPanel(id, res.messages);
+        renderChatList();
+      });
+    }
+
+    function renderChatPanel(id, messages) {
+      const chat = chats[id];
+      if (!chat) return;
+      const panel = document.getElementById('chat-panel');
+      panel.className = 'chat-panel';
+      panel.innerHTML = `
+        <div class="chat-header">
+          <div>
+            <h2>${esc(chat.customer_name)}</h2>
+            <div style="font-size:12px;color:var(--muted);">${esc(chat.customer_contact)} · ${chat.status}</div>
+          </div>
+          <div class="chat-actions">
+            ${chat.status !== 'with_agent' || chat.agent_id != user.id ? '<button class="primary" onclick="takeOver(\'' + id + '\')">Take over</button>' : ''}
+            <button onclick="toBot('${id}')">Hand to Bot</button>
+            <button onclick="resolveChat('${id}')" class="danger">Resolve</button>
+          </div>
+        </div>
+        <div class="messages" id="messages"></div>
+        <div class="compose">
+          <label><input type="checkbox" id="internal-note" /> Internal note</label>
+          <textarea id="compose-input" placeholder="Type a reply…"></textarea>
+          <button onclick="sendAgentMsg()">Send</button>
+        </div>
+      `;
+      const msgsEl = document.getElementById('messages');
+      (messages || []).forEach(m => appendMsg(m, msgsEl));
+    }
+
+    function appendMsg(msg, container) {
+      const el = container || document.getElementById('messages');
+      if (!el) return;
+      const div = document.createElement('div');
+      const type = msg.is_internal ? 'internal agent' : msg.sender_type;
+      div.className = 'msg ' + type;
+      div.innerHTML = '<div class="bubble">' + esc(msg.content) + '</div><div class="meta">' + esc(msg.sender_name || '') + ' · ' + formatTime(msg.created_at) + (msg.is_internal ? ' (internal)' : '') + '</div>';
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function sendAgentMsg() {
+      const input = document.getElementById('compose-input');
+      const content = input.value.trim();
+      if (!content || !currentChatId) return;
+      const isInternal = document.getElementById('internal-note').checked;
+      socket.emit('message:send', { chatId: currentChatId, content, isInternal }, () => { input.value = ''; });
+    }
+
+    window.takeOver = (id) => socket.emit('chat:takeover', { chatId: id }, (res) => { if (res.error) alert(res.error); });
+    window.toBot = (id) => socket.emit('chat:to-bot', { chatId: id });
+    window.resolveChat = (id) => socket.emit('chat:resolve', { chatId: id });
+
+    async function loadAdmin() {
+      document.getElementById('sidebar').style.display = 'none';
+      document.getElementById('chat-panel').style.display = 'none';
+      document.getElementById('admin-panel').style.display = 'block';
+      const headers = { Authorization: 'Bearer ' + token };
+      const stats = await (await fetch('/api/admin/stats', { headers })).json();
+      document.getElementById('stats').innerHTML =
+        '<div class="stat-card"><div class="num">' + stats.chatsToday + '</div><div class="label">Chats today</div></div>' +
+        '<div class="stat-card"><div class="num">' + stats.totalChats + '</div><div class="label">Total chats</div></div>' +
+        '<div class="stat-card"><div class="num">' + stats.escalationRate + '%</div><div class="label">Escalation rate</div></div>' +
+        '<div class="stat-card"><div class="num">' + stats.resolved + '</div><div class="label">Resolved</div></div>';
+      const settings = await (await fetch('/api/admin/settings', { headers })).json();
+      document.getElementById('setting-greeting').value = settings.greeting || '';
+      const kb = await (await fetch('/api/admin/knowledge', { headers })).json();
+      document.getElementById('kb-body').innerHTML = kb.map(e =>
+        '<tr><td>' + esc(e.category) + '</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">' + esc(e.keywords) +
+        '</td><td style="max-width:280px;">' + esc(e.answer).slice(0, 80) + '…</td><td><button onclick="deleteKb(' + e.id +
+        ')" style="color:var(--danger);border:none;background:none;cursor:pointer;">Delete</button></td></tr>'
+      ).join('');
+      const agents = await (await fetch('/api/admin/agents', { headers })).json();
+      document.getElementById('agents-body').innerHTML = agents.map(a =>
+        '<tr><td>' + esc(a.name) + '</td><td>' + esc(a.username) + '</td><td>' + a.role + '</td><td>' +
+        (a.online ? 'Online' : 'Offline') + '</td><td>' + (a.id !== user.id ?
+        '<button onclick="deleteAgent(' + a.id + ')" style="color:var(--danger);border:none;background:none;cursor:pointer;">Remove</button>' : '') +
+        '</td></tr>'
+      ).join('');
+    }
+
+    window.deleteKb = async (id) => {
+      if (!confirm('Delete this entry?')) return;
+      await fetch('/api/admin/knowledge/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+      loadAdmin();
+    };
+    window.deleteAgent = async (id) => {
+      if (!confirm('Remove this agent?')) return;
+      await fetch('/api/admin/agents/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+      loadAdmin();
+    };
+
+    document.getElementById('save-greeting').onclick = async () => {
+      await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ greeting: document.getElementById('setting-greeting').value })
+      });
+      alert('Saved');
+    };
+    document.getElementById('kb-add').onclick = async () => {
+      const category = document.getElementById('kb-cat').value.trim();
+      const keywords = document.getElementById('kb-keywords').value.trim();
+      const answer = document.getElementById('kb-answer').value.trim();
+      if (!category || !keywords || !answer) return alert('All fields required');
+      await fetch('/api/admin/knowledge', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, keywords, answer })
+      });
+      loadAdmin();
+    };
+    document.getElementById('ag-add').onclick = async () => {
+      const username = document.getElementById('ag-user').value.trim();
+      const password = document.getElementById('ag-pass').value;
+      const name = document.getElementById('ag-name').value.trim();
+      const role = document.getElementById('ag-role').value;
+      if (!username || !password || !name) return alert('All fields required');
+      const res = await fetch('/api/admin/agents', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, name, role })
+      });
+      if (!res.ok) { const d = await res.json(); return alert(d.error || 'Failed'); }
+      loadAdmin();
+    };
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+    function formatTime(iso) { try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } }
+    function timeAgo(iso) {
+      const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
+    }
+
+    document.getElementById('login-btn').onclick = login;
+    document.getElementById('login-pass').onkeydown = (e) => { if (e.key === 'Enter') login(); };
+    document.getElementById('logout-btn').onclick = logout;
+    document.getElementById('btn-admin').onclick = loadAdmin;
+    document.getElementById('btn-chats').onclick = () => {
+      document.getElementById('admin-panel').style.display = 'none';
+      document.getElementById('sidebar').style.display = 'flex';
+      document.getElementById('chat-panel').style.display = 'flex';
+    };
+    document.querySelectorAll('.sidebar-tabs button').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.sidebar-tabs button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filter = btn.dataset.filter;
+        renderChatList();
+      };
+    });
+
+    if (token) {
+      user = JSON.parse(localStorage.getItem('hama_user') || '{}');
+      fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(d => { user = d.user; showApp(); })
+        .catch(() => localStorage.clear());
+    }
+    if (Notification.permission === 'default') Notification.requestPermission();
+  </script>
+</body>
+</html>
