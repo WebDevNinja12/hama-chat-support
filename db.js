@@ -12,7 +12,6 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-// Ensure documents folder exists under DATA_DIR
 const docsPath = path.join(dataDir, 'documents');
 if (!fs.existsSync(docsPath)) fs.mkdirSync(docsPath, { recursive: true });
 
@@ -111,7 +110,6 @@ function initDb() {
     );
   `);
 
-  // Migrate older DBs that lack source_label
   try {
     db.exec('ALTER TABLE messages ADD COLUMN source_label TEXT');
   } catch (_) {}
@@ -128,21 +126,20 @@ function initDb() {
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('contact_phone', '+234 XXX XXX XXXX');
   }
 
+  // Default admin password is hama123 (override with ADMIN_PASSWORD env)
+  const defaultAdminPassword = process.env.ADMIN_PASSWORD || 'hama123';
+
   const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
   if (userCount === 0) {
     console.log('No users found — creating first admin...');
 
-    let adminPassword;
-    if (isLive()) {
-      adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
-      if (!process.env.ADMIN_PASSWORD) {
-        console.log('================================================');
-        console.log('FIRST ADMIN PASSWORD (save this, shown once):');
-        console.log(adminPassword);
-        console.log('================================================');
-      }
-    } else {
-      adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    let adminPassword = defaultAdminPassword;
+    if (isLive() && !process.env.ADMIN_PASSWORD) {
+      // Still use hama123 as requested; log it clearly
+      console.log('================================================');
+      console.log('Admin login: username=admin  password=hama123');
+      console.log('Change this after first login.');
+      console.log('================================================');
     }
 
     const adminHash = bcrypt.hashSync(adminPassword, 10);
@@ -179,7 +176,19 @@ function initDb() {
       for (const row of kbEntries) insertKb.run(...row);
     }
 
-    console.log('Admin ready. Username: admin');
+    console.log('Admin ready. Username: admin / password: hama123');
+  }
+
+  // One-time migration: set admin password to hama123 (or ADMIN_PASSWORD)
+  const migrated = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_pw_hama123');
+  if (!migrated) {
+    const admin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
+    if (admin) {
+      const hash = bcrypt.hashSync(defaultAdminPassword, 10);
+      db.prepare('UPDATE users SET password_hash = ? WHERE username = ?').run(hash, 'admin');
+      console.log('Admin password updated to the new default (hama123 or ADMIN_PASSWORD).');
+    }
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('admin_pw_hama123', '1');
   }
 }
 
