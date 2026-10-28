@@ -8,8 +8,7 @@ const db = require('./db');
 
 console.log('Seeding database for Hama Enterprise Ng...\n');
 
-// Create admin user
-const adminPassword = 'admin123';
+const adminPassword = process.env.ADMIN_PASSWORD || 'hama123';
 const hash = bcrypt.hashSync(adminPassword, 10);
 
 const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
@@ -19,13 +18,18 @@ if (!existingAdmin) {
   ).run('admin', hash, 'System Admin', 'admin');
   console.log('✅ Admin user created');
   console.log('   Username: admin');
-  console.log('   Password: admin123');
+  console.log('   Password: ' + adminPassword);
   console.log('   ⚠️  Change this password after first login!\n');
 } else {
-  console.log('ℹ️  Admin user already exists\n');
+  // Optionally update password if FORCE_ADMIN_PASSWORD=1
+  if (process.env.FORCE_ADMIN_PASSWORD === '1') {
+    db.prepare('UPDATE users SET password_hash = ? WHERE username = ?').run(hash, 'admin');
+    console.log('✅ Admin password reset to: ' + adminPassword + '\n');
+  } else {
+    console.log('ℹ️  Admin user already exists (set FORCE_ADMIN_PASSWORD=1 to reset)\n');
+  }
 }
 
-// Create sample agent
 const agentHash = bcrypt.hashSync('agent123', 10);
 const existingAgent = db.prepare('SELECT id FROM users WHERE username = ?').get('agent1');
 if (!existingAgent) {
@@ -35,99 +39,22 @@ if (!existingAgent) {
   console.log('✅ Sample agent created (username: agent1 / password: agent123)\n');
 }
 
-// Knowledge base entries
 const kbEntries = [
-  {
-    category: 'services',
-    keywords: 'services,painting,what do you do,offer,paint,interior,exterior,design',
-    question: 'What services do you offer?',
-    answer: 'Hama Enterprise Ng (RC 8827959) offers professional painting, interior design, and exterior design services for residential, commercial, and industrial clients across Nigeria. We handle everything from single-room repaints to full building projects.',
-    priority: 10
-  },
-  {
-    category: 'services',
-    keywords: 'painting,paint,house paint,wall,ceiling',
-    question: 'Do you do painting?',
-    answer: 'Yes! We specialize in high-quality interior and exterior painting for homes, offices, factories and commercial buildings. We use premium paints and skilled craftsmen.',
-    priority: 9
-  },
-  {
-    category: 'services',
-    keywords: 'interior design,interior,decoration,decor',
-    question: 'Do you offer interior design?',
-    answer: 'Absolutely. Our interior design team helps you create beautiful, functional spaces — colour consultation, material selection, and full project coordination.',
-    priority: 9
-  },
-  {
-    category: 'services',
-    keywords: 'exterior design,exterior,facade,outdoor',
-    question: 'Do you do exterior design?',
-    answer: 'Yes, we provide exterior design and painting services including facade treatments, protective coatings and aesthetic upgrades for residential and commercial properties.',
-    priority: 8
-  },
-  {
-    category: 'areas',
-    keywords: 'location,area,serve,where,city,lagos,abuja,port harcourt,nigeria',
-    question: 'Which areas do you serve?',
-    answer: 'We primarily serve Lagos, Abuja, Port Harcourt and surrounding areas. For projects outside these locations, please contact us so we can assess feasibility.',
-    priority: 10
-  },
-  {
-    category: 'quote',
-    keywords: 'quote,price,cost,estimate,how much,pricing,quotation',
-    question: 'How can I get a quote?',
-    answer: 'To request a free quote, please share: 1) Type of project (residential/commercial/industrial), 2) Approximate size or number of rooms, 3) Location, 4) Preferred contact. One of our agents will follow up shortly. You can also say "Talk to a person".',
-    priority: 10
-  },
-  {
-    category: 'hours',
-    keywords: 'hours,working hours,open,time,when,schedule',
-    question: 'What are your working hours?',
-    answer: 'We are available Monday to Saturday, 8:00 AM – 6:00 PM WAT. For urgent site inspections outside these hours, leave your contact and we will arrange a suitable time.',
-    priority: 8
-  },
-  {
-    category: 'contact',
-    keywords: 'contact,phone,email,call,reach,number',
-    question: 'How can I contact you?',
-    answer: 'You can reach Hama Enterprise Ng at support@hamaenterprise.ng or leave your phone number here and an agent will call you back. Our office hours are Mon–Sat 8am–6pm WAT.',
-    priority: 9
-  },
-  {
-    category: 'faq',
-    keywords: 'rc,registration,company,about,who are you',
-    question: 'What is your company registration?',
-    answer: 'Hama Enterprise Ng is a registered company with RC 8827959. We proudly serve residential, commercial and industrial clients with professional painting and design services.',
-    priority: 5
-  },
-  {
-    category: 'faq',
-    keywords: 'payment,pay,deposit,invoice',
-    question: 'How do payments work?',
-    answer: 'Payment terms are discussed after a site assessment or detailed quote. We typically require a deposit to schedule work. For payment arrangements please speak with an agent.',
-    priority: 7
-  },
-  {
-    category: 'faq',
-    keywords: 'inspection,site visit,survey,measure',
-    question: 'Do you do site inspections?',
-    answer: 'Yes, free site inspections can be arranged for most projects within our service areas. Please provide your location and preferred dates so an agent can schedule it.',
-    priority: 8
-  },
-  {
-    category: 'faq',
-    keywords: 'complaint,problem,issue,unhappy,bad job',
-    question: 'How do I make a complaint?',
-    answer: 'We take every concern seriously. Please describe the issue and share your contact details. An agent will take over this chat immediately to assist you.',
-    priority: 10
-  }
+  { category: 'services', keywords: 'services,painting,what do you do,offer,paint,interior,exterior,design', question: 'What services do you offer?', answer: 'Hama Enterprise Ng (RC 8827959) offers professional painting, interior design, and exterior design services for residential, commercial, and industrial clients across Nigeria.', priority: 10 },
+  { category: 'services', keywords: 'painting,paint,house paint,wall,ceiling', question: 'Do you do painting?', answer: 'Yes! We specialize in high-quality interior and exterior painting for homes, offices, factories and commercial buildings.', priority: 9 },
+  { category: 'services', keywords: 'interior design,interior,decoration,decor', question: 'Do you offer interior design?', answer: 'Absolutely. Our interior design team helps you create beautiful, functional spaces — colour consultation, material selection, and full project coordination.', priority: 9 },
+  { category: 'services', keywords: 'exterior design,exterior,facade,outdoor', question: 'Do you do exterior design?', answer: 'Yes, we provide exterior design and painting services including facade treatments, protective coatings and aesthetic upgrades.', priority: 8 },
+  { category: 'areas', keywords: 'location,area,serve,where,city,lagos,abuja,port harcourt,nigeria', question: 'Which areas do you serve?', answer: 'We primarily serve Lagos, Abuja, Port Harcourt and surrounding areas. Contact us for projects outside these locations.', priority: 10 },
+  { category: 'quote', keywords: 'quote,price,cost,estimate,how much,pricing,quotation', question: 'How can I get a quote?', answer: 'To request a free quote, please share: 1) Type of project, 2) Approximate size, 3) Location, 4) Preferred contact. An agent will follow up shortly.', priority: 10 },
+  { category: 'hours', keywords: 'hours,working hours,open,time,when,schedule', question: 'What are your working hours?', answer: 'We are available Monday to Saturday, 8:00 AM – 6:00 PM WAT.', priority: 8 },
+  { category: 'contact', keywords: 'contact,phone,email,call,reach,number', question: 'How can I contact you?', answer: 'Leave your phone number here and an agent will call you back. Office hours: Mon–Sat 8am–6pm WAT.', priority: 9 },
+  { category: 'faq', keywords: 'rc,registration,company,about,who are you', question: 'What is your company registration?', answer: 'Hama Enterprise Ng is a registered company with RC 8827959.', priority: 5 },
+  { category: 'faq', keywords: 'payment,pay,deposit,invoice', question: 'How do payments work?', answer: 'Payment terms are discussed after a site assessment or detailed quote. Please speak with an agent for payment arrangements.', priority: 7 },
+  { category: 'faq', keywords: 'inspection,site visit,survey,measure', question: 'Do you do site inspections?', answer: 'Yes, free site inspections can be arranged within our service areas.', priority: 8 },
+  { category: 'faq', keywords: 'complaint,problem,issue,unhappy,bad job', question: 'How do I make a complaint?', answer: 'We take every concern seriously. Please describe the issue and an agent will take over this chat to assist you.', priority: 10 }
 ];
 
-const insertKb = db.prepare(`
-  INSERT INTO knowledge_base (category, keywords, question, answer, priority)
-  VALUES (?, ?, ?, ?, ?)
-`);
-
+const insertKb = db.prepare(`INSERT INTO knowledge_base (category, keywords, question, answer, priority) VALUES (?, ?, ?, ?, ?)`);
 const existingKb = db.prepare('SELECT COUNT(*) as c FROM knowledge_base').get();
 if (existingKb.c === 0) {
   for (const entry of kbEntries) {
@@ -138,6 +65,4 @@ if (existingKb.c === 0) {
   console.log(`ℹ️  Knowledge base already has ${existingKb.c} entries\n`);
 }
 
-console.log('Seed complete! Start the server with: npm start');
-console.log('Then open http://localhost:3000 for the agent dashboard');
-console.log('Widget demo: http://localhost:3000/widget-demo.html');
+console.log('Seed complete!');
