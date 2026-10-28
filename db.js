@@ -126,20 +126,19 @@ function initDb() {
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('contact_phone', '+234 XXX XXX XXXX');
   }
 
-  // Default admin password is hama123 (override with ADMIN_PASSWORD env)
-  const defaultAdminPassword = process.env.ADMIN_PASSWORD || 'hama123';
-
   const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
   if (userCount === 0) {
     console.log('No users found — creating first admin...');
 
-    let adminPassword = defaultAdminPassword;
-    if (isLive() && !process.env.ADMIN_PASSWORD) {
-      // Still use hama123 as requested; log it clearly
-      console.log('================================================');
-      console.log('Admin login: username=admin  password=hama123');
-      console.log('Change this after first login.');
-      console.log('================================================');
+    let adminPassword;
+    if (isLive()) {
+      // Prefer explicit env; otherwise use hama123 so free-tier deploys stay usable
+      adminPassword = process.env.ADMIN_PASSWORD || 'hama123';
+      if (!process.env.ADMIN_PASSWORD) {
+        console.log('Admin password: hama123 (set ADMIN_PASSWORD env to override)');
+      }
+    } else {
+      adminPassword = process.env.ADMIN_PASSWORD || 'hama123';
     }
 
     const adminHash = bcrypt.hashSync(adminPassword, 10);
@@ -176,19 +175,7 @@ function initDb() {
       for (const row of kbEntries) insertKb.run(...row);
     }
 
-    console.log('Admin ready. Username: admin / password: hama123');
-  }
-
-  // One-time migration: set admin password to hama123 (or ADMIN_PASSWORD)
-  const migrated = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_pw_hama123');
-  if (!migrated) {
-    const admin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-    if (admin) {
-      const hash = bcrypt.hashSync(defaultAdminPassword, 10);
-      db.prepare('UPDATE users SET password_hash = ? WHERE username = ?').run(hash, 'admin');
-      console.log('Admin password updated to the new default (hama123 or ADMIN_PASSWORD).');
-    }
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('admin_pw_hama123', '1');
+    console.log('Admin ready. Username: admin');
   }
 }
 
