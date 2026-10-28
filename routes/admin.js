@@ -40,7 +40,6 @@ router.post('/agents', adminRequired, (req, res) => {
   }
 });
 
-// Admin resets an agent's password (cannot view old password — it is hashed)
 router.post('/agents/:id/reset-password', adminRequired, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { newPassword } = req.body || {};
@@ -191,19 +190,45 @@ router.get('/chats/:id/messages', (req, res) => {
   res.json(messages);
 });
 
-// ---- Seed ----
+// Delete one chat
+router.delete('/chats/:id', adminRequired, (req, res) => {
+  const id = req.params.id;
+  db.prepare('DELETE FROM messages WHERE chat_id = ?').run(id);
+  const result = db.prepare('DELETE FROM chats WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Chat not found' });
+  res.json({ success: true });
+});
+
+// Clear ALL chats and messages (admin only)
+router.post('/chats/clear', adminRequired, (req, res) => {
+  const msgCount = db.prepare('SELECT COUNT(*) as c FROM messages').get().c;
+  const chatCount = db.prepare('SELECT COUNT(*) as c FROM chats').get().c;
+  db.prepare('DELETE FROM messages').run();
+  db.prepare('DELETE FROM chats').run();
+  db.prepare('DELETE FROM offline_requests').run();
+  res.json({
+    success: true,
+    message: `Cleared ${chatCount} chats and ${msgCount} messages`
+  });
+});
+
+// ---- Seed / repair data ----
 router.post('/seed', adminRequired, (req, res) => {
   try {
     const results = [];
-    const adminPassword = 'admin123';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'hama123';
     const hash = bcrypt.hashSync(adminPassword, 10);
     const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
+
     if (!existingAdmin) {
       db.prepare('INSERT INTO users (username, password_hash, name, role) VALUES (?, ?, ?, ?)')
         .run('admin', hash, 'System Admin', 'admin');
-      results.push('Admin user created (admin / admin123)');
+      results.push('Admin created (admin / ' + adminPassword + ')');
+    } else if (req.body && req.body.resetAdminPassword) {
+      db.prepare('UPDATE users SET password_hash = ? WHERE username = ?').run(hash, 'admin');
+      results.push('Admin password reset to: ' + adminPassword);
     } else {
-      results.push('Admin user already exists');
+      results.push('Admin already exists');
     }
 
     const agentHash = bcrypt.hashSync('agent123', 10);
@@ -211,16 +236,35 @@ router.post('/seed', adminRequired, (req, res) => {
     if (!existingAgent) {
       db.prepare('INSERT INTO users (username, password_hash, name, role) VALUES (?, ?, ?, ?)')
         .run('agent1', agentHash, 'Support Agent 1', 'agent');
-      results.push('Sample agent created (agent1 / agent123)');
+      results.push('Agent created (agent1 / agent123)');
     } else {
-      results.push('Sample agent already exists');
+      results.push('Agent agent1 already exists');
     }
 
-    const existingKb = db.prepare('SELECT COUNT(*) as c FROM knowledge_base').get();
-    if (existingKb.c === 0) {
-      results.push('Knowledge base empty — use Auto-seed on server start or add entries manually');
+    const kbCount = db.prepare('SELECT COUNT(*) as c FROM knowledge_base').get().c;
+    if (kbCount === 0) {
+      const kbEntries = [
+        ['services', 'services,painting,what do you do,offer,paint,interior,exterior,design', 'What services do you offer?', 'Hama Enterprise Ng (RC 8827959) offers professional painting, interior design, and exterior design for residential, commercial and industrial clients.', 10],
+        ['quote', 'quote,price,cost,estimate,how much,pricing', 'How can I get a quote?', 'Share your project type, size, location and contact. An agent will follow up shortly.', 10],
+        ['hours', 'hours,working hours,open,time,when', 'What are your working hours?', 'Monday to Saturday, 8:00 AM – 6:00 PM WAT.', 8],
+        ['areas', 'location,area,serve,where,lagos,abuja', 'Which areas do you serve?', 'Lagos, Abuja, Port Harcourt and surrounding areas.', 10],
+        ['contact', 'contact,phone,email,call', 'How can I contact you?', 'Leave your phone number in chat and an agent will call you back.', 9]
+      ];
+      const ins = db.prepare('INSERT INTO knowledge_base (category, keywords, question, answer, priority) VALUES (?, ?, ?, ?, ?)');
+      for (const row of kbEntries) ins.run(...row);
+      results.push('Inserted ' + kbEntries.length + ' Q&A entries');
     } else {
-      results.push(`Knowledge base has ${existingKb.c} entries`);
+      results.push('Q&A knowledge base has ' + kbCount + ' entries');
+    }
+
+    // Default settings if missing
+    const g = db.prepare('SELECT value FROM settings WHERE key = ?').get('greeting');
+    if (!g) {
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(
+        'greeting',
+        'Welcome to Hama Enterprise Ng Support! How can we help you today?'
+      );
+      results.push('Default greeting saved');
     }
 
     res.json({ success: true, messages: results });
