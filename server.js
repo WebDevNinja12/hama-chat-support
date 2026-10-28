@@ -43,43 +43,14 @@ app.get('/api/health', (req, res) => {
 
 app.get('/', (req, res) => {
   res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hama Enterprise Ng - Live Chat Support</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 0; background: #f8fafc; color: #1e293b; }
-    header { background: #0D7377; color: white; padding: 32px 24px; text-align: center; }
-    header h1 { margin: 0 0 8px; font-size: 28px; }
-    header p { margin: 0; opacity: 0.9; }
-    main { max-width: 640px; margin: 40px auto; padding: 0 20px; }
-    .card { background: white; border-radius: 12px; padding: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin-bottom: 20px; }
-    h2 { color: #0D7377; margin-top: 0; }
-    a.btn { display: inline-block; background: #0D7377; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 8px 8px 0 0; }
-    a.btn.secondary { background: #E85D04; }
-    a.btn:hover { opacity: 0.9; }
-    ul { line-height: 1.8; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Hama Enterprise Ng</h1>
-    <p>Live Chat Support System &nbsp;•&nbsp; RC 8827959</p>
-  </header>
-  <main>
-    <div class="card">
-      <h2>Welcome</h2>
-      <p>Painting, interior and exterior design support for residential, commercial and industrial clients.</p>
-      <p>
-        <a class="btn secondary" href="/widget-demo.html">Open chat demo</a>
-      </p>
-      <p style="font-size:13px;color:#64748b;margin-top:16px;">Staff only: <a href="/dashboard">Agent dashboard</a></p>
-    </div>
-  </main>
-  <script src="/widget.js"></script>
-</body>
-</html>`);
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Hama Enterprise Ng</title>
+<style>body{font-family:system-ui;margin:0;background:#f8fafc;color:#1e293b}header{background:#0D7377;color:#fff;padding:28px 20px;text-align:center}main{max-width:560px;margin:32px auto;padding:0 16px}.card{background:#fff;border-radius:12px;padding:24px;box-shadow:0 4px 16px rgba(0,0,0,.06)}a.btn{display:inline-block;background:#E85D04;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:12px}a.staff{color:#0D7377;font-size:14px}</style></head>
+<body><header><h1>Hama Enterprise Ng</h1><p>Live chat · RC 8827959</p></header>
+<main><div class="card"><p>Painting, interior &amp; exterior design support.</p>
+<a class="btn" href="/widget-demo.html">Try the chat</a>
+<p style="margin-top:20px"><a class="staff" href="/dashboard">Staff login</a></p></div></main>
+<script src="/widget.js"></script></body></html>`);
 });
 
 app.get(['/dashboard', '/dashboard/*'], (req, res) => {
@@ -103,9 +74,18 @@ io.on('connection', (socket) => {
     db.prepare('UPDATE users SET online = 1 WHERE id = ?').run(socket.user.id);
     io.to('agents').emit('agent:status', { userId: socket.user.id, online: true, name: socket.user.name });
 
+    // Load open chats + recent resolved so refresh does not look empty
     const openChats = db.prepare(`
-      SELECT * FROM chats WHERE status IN ('bot', 'needs_attention', 'with_agent')
-      ORDER BY CASE status WHEN 'needs_attention' THEN 0 WHEN 'with_agent' THEN 1 ELSE 2 END, updated_at DESC
+      SELECT * FROM chats
+      WHERE status IN ('bot', 'needs_attention', 'with_agent')
+         OR datetime(updated_at) >= datetime('now', '-14 days')
+      ORDER BY CASE status
+        WHEN 'needs_attention' THEN 0
+        WHEN 'with_agent' THEN 1
+        WHEN 'bot' THEN 2
+        ELSE 3 END,
+        updated_at DESC
+      LIMIT 150
     `).all();
     socket.emit('chats:list', openChats);
   }
@@ -141,13 +121,26 @@ io.on('connection', (socket) => {
       const { chatId, content, isInternal } = data || {};
       if (!chatId || !content || !content.trim()) return cb?.({ error: 'chatId and content required' });
 
-      const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
+      let chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
       if (!chat) return cb?.({ error: 'Chat not found' });
 
       const isAgent = !!socket.user;
       const senderType = isAgent ? (isInternal ? 'system' : 'agent') : 'customer';
       const senderName = isAgent ? socket.user.name : chat.customer_name;
       const internal = isAgent && isInternal ? 1 : 0;
+
+      // Keep chat editable: reopen if resolved when someone replies
+      if (!internal && chat.status === 'resolved') {
+        if (isAgent) {
+          db.prepare(`UPDATE chats SET status = 'with_agent', agent_id = ?, agent_name = ?, updated_at = datetime('now') WHERE id = ?`)
+            .run(socket.user.id, socket.user.name, chatId);
+        } else {
+          db.prepare(`UPDATE chats SET status = 'needs_attention', updated_at = datetime('now') WHERE id = ?`).run(chatId);
+        }
+        chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
+        io.to('agents').emit('chat:updated', chat);
+        io.to(`chat:${chatId}`).emit('chat:updated', chat);
+      }
 
       const result = db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content, is_internal) VALUES (?, ?, ?, ?, ?)`)
         .run(chatId, senderType, senderName, content.trim(), internal);
@@ -166,13 +159,14 @@ io.on('connection', (socket) => {
 
       if (internal) {
         io.to('agents').emit('message:new', { ...message, chatId });
-        socket.to(`chat:${chatId}`).emit('message:new', message);
       } else {
         io.to(`chat:${chatId}`).emit('message:new', message);
         io.to('agents').emit('message:new', { ...message, chatId });
       }
 
-      if (!isAgent && chat.status === 'bot') {
+      // Bot only while status is still bot
+      const latest = db.prepare('SELECT status FROM chats WHERE id = ?').get(chatId);
+      if (!isAgent && latest && latest.status === 'bot') {
         handleBotReply(chatId, content.trim()).catch(err => console.error('bot reply error', err));
       }
 
@@ -255,7 +249,7 @@ io.on('connection', (socket) => {
   socket.on('chat:resolve', ({ chatId }, cb) => {
     if (!socket.user) return cb?.({ error: 'Unauthorized' });
     db.prepare(`UPDATE chats SET status = 'resolved', updated_at = datetime('now') WHERE id = ?`).run(chatId);
-    const sysMsg = 'This chat has been marked as resolved. Thank you for contacting Hama Enterprise Ng!';
+    const sysMsg = 'This chat was marked resolved. You can still send a message if needed.';
     db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content) VALUES (?, 'system', 'System', ?)`).run(chatId, sysMsg);
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to(`chat:${chatId}`).emit('chat:updated', updated);
@@ -325,7 +319,6 @@ async function handleBotReply(chatId, userMessage) {
       io.to(`chat:${chatId}`).emit('show:offline-form');
     }
   } else {
-    // answer or miss (rephrase)
     db.prepare(`INSERT INTO messages (chat_id, sender_type, sender_name, content, source_label) VALUES (?, 'bot', 'Hama Support Bot', ?, ?)`) 
       .run(chatId, reply.message, sourceLabel);
 
@@ -334,18 +327,12 @@ async function handleBotReply(chatId, userMessage) {
       content: reply.message, source_label: sourceLabel,
       created_at: new Date().toISOString(), quickReplies: reply.quickReplies
     };
-    // Visitors never see source_label; agents do via dashboard
-    io.to(`chat:${chatId}`).emit('message:new', {
-      ...message,
-      source_label: undefined
-    });
+    io.to(`chat:${chatId}`).emit('message:new', { ...message, source_label: undefined });
     io.to('agents').emit('message:new', { ...message, chatId });
   }
 }
 
 server.listen(PORT, () => {
-  console.log(`\nHama Enterprise Ng Chat Support running on port ${PORT}`);
+  console.log(`\nHama Enterprise Ng Chat Support on port ${PORT}`);
   console.log(`DATA_DIR: ${process.env.DATA_DIR || './data'}`);
-  console.log(`Homepage:        http://localhost:${PORT}/`);
-  console.log(`Agent Dashboard: http://localhost:${PORT}/dashboard`);
 });
