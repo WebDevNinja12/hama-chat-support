@@ -102,6 +102,78 @@ function initDb() {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT,
+      visitor_name TEXT NOT NULL,
+      contact TEXT NOT NULL,
+      service TEXT NOT NULL,
+      property_type TEXT NOT NULL,
+      location TEXT NOT NULL,
+      project_size TEXT,
+      preferred_date TEXT,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'New',
+      owner_id INTEGER,
+      staff_notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS callback_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT,
+      visitor_name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      best_time TEXT,
+      message TEXT,
+      status TEXT NOT NULL DEFAULT 'New',
+      handled_by INTEGER,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS ratings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT,
+      message_id INTEGER,
+      rating INTEGER NOT NULL CHECK (rating IN (-1, 1)),
+      comment TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS unanswered_questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question TEXT NOT NULL,
+      normalized TEXT NOT NULL UNIQUE,
+      count INTEGER NOT NULL DEFAULT 1,
+      ignored INTEGER NOT NULL DEFAULT 0,
+      resolved INTEGER NOT NULL DEFAULT 0,
+      last_asked_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS canned_replies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      owner_id INTEGER,
+      personal INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS blocked_visitors (
+      visitor_key TEXT PRIMARY KEY,
+      expires_at TEXT NOT NULL,
+      reason TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS alert_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT,
+      kind TEXT NOT NULL,
+      sent_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS document_passages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       document_id INTEGER NOT NULL,
@@ -109,6 +181,15 @@ function initDb() {
       text TEXT NOT NULL,
       FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
     );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_messages_chat_created ON messages(chat_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_chats_created ON chats(created_at);
+    CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at);
+    CREATE INDEX IF NOT EXISTS idx_callbacks_created ON callback_requests(created_at);
+    CREATE INDEX IF NOT EXISTS idx_ratings_created ON ratings(created_at);
+    CREATE INDEX IF NOT EXISTS idx_unanswered_count ON unanswered_questions(count DESC, last_asked_at DESC);
   `);
 
   const alters = [
