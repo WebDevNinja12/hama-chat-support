@@ -65,7 +65,7 @@ app.post('/api/callbacks', async (req, res) => {
   const name = typeof b.name === 'string' ? b.name.trim().slice(0, 120) : '';
   const phone = typeof b.phone === 'string' ? b.phone.trim().slice(0, 40) : '';
   const message = typeof b.message === 'string' ? b.message.trim().slice(0, 2000) : '';
-  if (!name || !phone || !/^[+0-9()\\-\\s]{7,40}$/.test(phone)) return res.status(400).json({ error: 'Enter your name and a valid phone number.' });
+  if (!name || !phone || !/^[+0-9()\\- \\t]{7,40}$/.test(phone)) return res.status(400).json({ error: 'Enter your name and a valid phone number.' });
   const chat = b.chatId ? db.prepare('SELECT id, customer_name, customer_contact FROM chats WHERE id = ?').get(String(b.chatId)) : null;
   const result = db.prepare('INSERT INTO callback_requests (chat_id, visitor_name, phone, best_time, message) VALUES (?, ?, ?, ?, ?)').run(chat ? chat.id : null, name, phone, String(b.bestTime || '').slice(0, 120), message || null);
   await sendStaffAlert('Call-back requested', { id: result.lastInsertRowid, chat_id: chat && chat.id, visitor_name: name, phone, message });
@@ -430,7 +430,7 @@ async function handleBotReply(chatId, userMessage) {
 
   // Record low-confidence questions so the admin can improve the knowledge base.
   if (reply.type === 'miss' || reply.type === 'clarify' || reply.type === 'escalate') {
-    const normalized = String(userMessage || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 500);
+    const normalized = String(userMessage || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
     if (normalized) db.prepare("INSERT INTO unanswered_questions (question, normalized) VALUES (?, ?) ON CONFLICT(normalized) DO UPDATE SET count = count + 1, last_asked_at = datetime('now')").run(String(userMessage).slice(0, 500), normalized);
   }
 
