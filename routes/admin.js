@@ -185,4 +185,19 @@ router.post('/seed', adminRequired, (req, res) => {
   }
 });
 
+
+// Staff can inspect and update call-back requests.
+router.get('/callbacks', (req, res) => {
+  const rows = db.prepare("SELECT * FROM callback_requests ORDER BY created_at DESC").all();
+  res.json({ callbacks: rows, newCount: rows.filter(row => row.status === 'New').length });
+});
+
+router.patch('/callbacks/:id', (req, res) => {
+  const status = String((req.body || {}).status || '');
+  if (!['New', 'Contacted', 'Done'].includes(status)) return res.status(400).json({ error: 'Choose New, Contacted, or Done.' });
+  const result = db.prepare("UPDATE callback_requests SET status = ?, handled_by = ?, updated_at = datetime('now') WHERE id = ?").run(status, req.user.id, Number(req.params.id));
+  if (!result.changes) return res.status(404).json({ error: 'Call-back not found.' });
+  res.json({ success: true });
+});
+
 module.exports = router;
