@@ -185,4 +185,53 @@ router.post('/seed', adminRequired, (req, res) => {
   }
 });
 
+
+// Staff can inspect and update call-back requests.
+router.get('/callbacks', (req, res) => {
+  const rows = db.prepare("SELECT * FROM callback_requests ORDER BY created_at DESC").all();
+  res.json({ callbacks: rows, newCount: rows.filter(row => row.status === 'New').length });
+});
+
+router.patch('/callbacks/:id', (req, res) => {
+  const status = String((req.body || {}).status || '');
+  if (!['New', 'Contacted', 'Done'].includes(status)) return res.status(400).json({ error: 'Choose New, Contacted, or Done.' });
+  const result = db.prepare("UPDATE callback_requests SET status = ?, handled_by = ?, updated_at = datetime('now') WHERE id = ?").run(status, req.user.id, Number(req.params.id));
+  if (!result.changes) return res.status(404).json({ error: 'Call-back not found.' });
+  res.json({ success: true });
+});
+
+
+// Lead management for authenticated staff.
+router.get('/leads', (req, res) => {
+  const status = String((req.query || {}).status || '');
+  const allowed = ['New', 'Contacted', 'Quoted', 'Won', 'Lost'];
+  const rows = status && allowed.includes(status) ? db.prepare('SELECT * FROM leads WHERE status = ? ORDER BY created_at DESC').all(status) : db.prepare('SELECT * FROM leads ORDER BY created_at DESC').all();
+  res.json(rows);
+});
+router.patch('/leads/:id', (req, res) => {
+  const body = req.body || {};
+  const allowed = ['New', 'Contacted', 'Quoted', 'Won', 'Lost'];
+  if (body.status !== undefined && !allowed.includes(body.status)) return res.status(400).json({ error: 'Invalid lead status.' });
+  if (body.staff_notes !== undefined && (typeof body.staff_notes !== 'string' || body.staff_notes.length > 4000)) return res.status(400).json({ error: 'Notes must be under 4,000 characters.' });
+  const result = db.prepare("UPDATE leads SET status = COALESCE(?, status), staff_notes = COALESCE(?, staff_notes), owner_id = COALESCE(?, owner_id), updated_at = datetime('now') WHERE id = ?").run(body.status || null, body.staff_notes === undefined ? null : body.staff_notes, body.owner_id === undefined ? null : Number(body.owner_id), Number(req.params.id));
+  if (!result.changes) return res.status(404).json({ error: 'Lead not found.' });
+  res.json({ success: true });
+});
+router.get('/ratings', adminRequired, (req, res) => res.json(db.prepare('SELECT * FROM ratings ORDER BY created_at DESC LIMIT 500').all()));
+router.get('/unanswered', adminRequired, (req, res) => res.json(db.prepare('SELECT * FROM unanswered_questions WHERE ignored = 0 AND resolved = 0 ORDER BY count DESC, last_asked_at DESC LIMIT 200').all()));
+router.post('/unanswered/:id/ignore', adminRequired, (req, res) => {
+  const result = db.prepare('UPDATE unanswered_questions SET ignored = 1 WHERE id = ?').run(Number(req.params.id));
+  if (!result.changes) return res.status(404).json({ error: 'Question not found.' });
+  res.json({ success: true });
+});
+router.get('/canned-replies', (req, res) => res.json(db.prepare('SELECT * FROM canned_replies WHERE personal = 0 OR owner_id = ? ORDER BY title').all(req.user.id)));
+router.post('/canned-replies', (req, res) => {
+  const body = req.body || {};
+  if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 120 || typeof body.body !== 'string' || !body.body.trim() || body.body.length > 3000) return res.status(400).json({ error: 'Enter a title and reply within the character limits.' });
+  const personal = body.personal === true;
+  if (!personal && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can create shared replies.' });
+  const result = db.prepare('INSERT INTO canned_replies (title, body, owner_id, personal) VALUES (?, ?, ?, ?)').run(body.title.trim(), body.body.trim(), personal ? req.user.id : null, personal ? 1 : 0);
+  res.status(201).json({ id: result.lastInsertRowid });
+});
+
 module.exports = router;
