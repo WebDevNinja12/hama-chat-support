@@ -78,6 +78,14 @@ async function run() {
   // Instructions must not be in document search index path — we never call saveNote with them
   console.log('✓ Instructions are file-based only (not documents)');
 
+  // Extension schema smoke tests: additive tables must be present in the existing SQLite mode.
+  const db = require('../db');
+  for (const table of ['leads', 'callback_requests', 'ratings', 'unanswered_questions', 'canned_replies', 'blocked_visitors', 'alert_log']) {
+    const exists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+    assert(exists, 'Expected extension table ' + table);
+  }
+  console.log('✓ Extension persistence tables created');
+
   console.log('\nAll privacy/complaint/instructions tests passed.');
 }
 
