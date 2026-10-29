@@ -37,6 +37,66 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/documents', documentRoutes);
 
+const alertCooldown = new Map();
+async function sendStaffAlert(kind, record) {
+  try {
+    const recipients = String(process.env.ALERT_EMAILS || '').split(',').map(x => x.trim()).filter(Boolean);
+    const key = record.chat_id || record.chatId || record.id || kind;
+    const now = Date.now();
+    if (alertCooldown.has(String(key)) && now - alertCooldown.get(String(key)) < 10 * 60 * 1000) return { skipped: true };
+    if (!recipients.length || !process.env.EMAIL_API_KEY) return { skipped: true, reason: 'Email alerts are not configured.' };
+    const provider = String(process.env.EMAIL_PROVIDER || 'resend').toLowerCase();
+    const subject = 'Hama support: ' + kind;
+    const text = ['Visitor: ' + (record.visitor_name || record.customer_name || 'Unknown'), 'Contact: ' + (record.contact || record.phone || record.customer_contact || 'Not provided'), 'First message: ' + (record.message || record.first_message || 'Not provided'), 'Reason: ' + kind, 'Time: ' + new Date().toISOString(), 'Dashboard: ' + (process.env.DASHBOARD_URL || '')].join('\\n');
+    let response;
+    if (provider === 'resend') {
+      response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + process.env.EMAIL_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: process.env.EMAIL_FROM || 'Hama Support <onboarding@resend.dev>', to: recipients, subject, text }) });
+    } else if (provider === 'brevo') {
+      response = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': process.env.EMAIL_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: { email: process.env.EMAIL_FROM }, to: recipients.map(email => ({ email })), subject, textContent: text }) });
+    } else return { error: 'EMAIL_PROVIDER must be resend or brevo.' };
+    if (!response.ok) return { error: 'Email provider rejected the alert.' };
+    alertCooldown.set(String(key), now);
+    return { sent: true };
+  } catch (_) { return { error: 'Email alert failed; chat service remains available.' }; }
+}
+
+app.post('/api/callbacks', async (req, res) => {
+  const b = req.body || {};
+  const name = typeof b.name === 'string' ? b.name.trim().slice(0, 120) : '';
+  const phone = typeof b.phone === 'string' ? b.phone.trim().slice(0, 40) : '';
+  const message = typeof b.message === 'string' ? b.message.trim().slice(0, 2000) : '';
+  if (!name || !phone || !/^[+0-9()\\-\\s]{7,40}$/.test(phone)) return res.status(400).json({ error: 'Enter your name and a valid phone number.' });
+  const chat = b.chatId ? db.prepare('SELECT id, customer_name, customer_contact FROM chats WHERE id = ?').get(String(b.chatId)) : null;
+  const result = db.prepare('INSERT INTO callback_requests (chat_id, visitor_name, phone, best_time, message) VALUES (?, ?, ?, ?, ?)').run(chat ? chat.id : null, name, phone, String(b.bestTime || '').slice(0, 120), message || null);
+  await sendStaffAlert('Call-back requested', { id: result.lastInsertRowid, chat_id: chat && chat.id, visitor_name: name, phone, message });
+  res.status(201).json({ success: true, id: result.lastInsertRowid, message: 'Your call-back request has been saved.' });
+});
+
+app.post('/api/leads', async (req, res) => {
+  const b = req.body || {};
+  const allowedServices = ['painting', 'interior design', 'exterior design'];
+  const allowedTypes = ['residential', 'commercial', 'industrial'];
+  const name = typeof b.visitor_name === 'string' ? b.visitor_name.trim().slice(0, 120) : '';
+  const contact = typeof b.contact === 'string' ? b.contact.trim().slice(0, 120) : '';
+  const service = String(b.service || '').toLowerCase();
+  const propertyType = String(b.property_type || '').toLowerCase();
+  const location = typeof b.location === 'string' ? b.location.trim().slice(0, 200) : '';
+  if (!name || !contact || !allowedServices.includes(service) || !allowedTypes.includes(propertyType) || !location) return res.status(400).json({ error: 'Complete the required quote request fields.' });
+  const chat = b.chat_id ? db.prepare('SELECT id FROM chats WHERE id = ?').get(String(b.chat_id)) : null;
+  const result = db.prepare('INSERT INTO leads (chat_id, visitor_name, contact, service, property_type, location, project_size, preferred_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(chat ? chat.id : null, name, contact, service, propertyType, location, String(b.project_size || '').slice(0, 200), String(b.preferred_date || '').slice(0, 80), String(b.notes || '').slice(0, 2000));
+  await sendStaffAlert('New quote lead', { id: result.lastInsertRowid, chat_id: chat && chat.id, visitor_name: name, contact, message: service + ' / ' + propertyType + ' / ' + location });
+  res.status(201).json({ success: true, id: result.lastInsertRowid, status: 'New', message: 'Your request has been saved. Our team will follow up. No price is estimated in this form.' });
+});
+
+app.post('/api/ratings', (req, res) => {
+  const b = req.body || {};
+  if (!b.chat_id || ![-1, 1].includes(Number(b.rating))) return res.status(400).json({ error: 'A chat and thumbs-up or thumbs-down rating are required.' });
+  const chat = db.prepare('SELECT id FROM chats WHERE id = ?').get(String(b.chat_id));
+  if (!chat) return res.status(404).json({ error: 'Chat not found.' });
+  const result = db.prepare('INSERT INTO ratings (chat_id, message_id, rating, comment) VALUES (?, ?, ?, ?)').run(chat.id, b.message_id ? Number(b.message_id) : null, Number(b.rating), String(b.comment || '').slice(0, 1000));
+  res.status(201).json({ success: true, id: result.lastInsertRowid });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', company: 'Hama Enterprise Ng', time: new Date().toISOString() });
 });
