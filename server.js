@@ -411,6 +411,7 @@ async function handleBotReply(chatId, userMessage) {
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to('agents').emit('chat:updated', updated);
     io.to('agents').emit('chat:escalated', updated);
+    sendStaffAlert('Customer complaint', { chat_id: chatId, visitor_name: updated.customer_name, contact: updated.customer_contact, message: userMessage }).catch(() => {});
     return;
   }
 
@@ -423,6 +424,7 @@ async function handleBotReply(chatId, userMessage) {
     const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     io.to('agents').emit('chat:updated', updated);
     io.to('agents').emit('chat:escalated', updated);
+    sendStaffAlert('Chat needs a person', { chat_id: chatId, visitor_name: updated.customer_name, contact: updated.customer_contact, message: userMessage }).catch(() => {});
     return;
   }
 
