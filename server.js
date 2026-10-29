@@ -346,6 +346,7 @@ io.on('connection', (socket) => {
     db.prepare(`INSERT INTO offline_requests (chat_id, customer_name, contact, message) VALUES (?, ?, ?, ?)`)
       .run(chatId || null, name || null, contact || null, message || null);
     io.to('agents').emit('offline:request', { name, contact, message, created_at: new Date().toISOString() });
+    sendStaffAlert('Call-back requested', { chat_id: chatId || null, visitor_name: name, contact, message }).catch(() => {});
     cb?.({ success: true, message: 'Thank you. Our team will contact you soon.' });
   });
 
@@ -423,6 +424,12 @@ async function handleBotReply(chatId, userMessage) {
     io.to('agents').emit('chat:updated', updated);
     io.to('agents').emit('chat:escalated', updated);
     return;
+  }
+
+  // Record low-confidence questions so the admin can improve the knowledge base.
+  if (reply.type === 'miss' || reply.type === 'clarify' || reply.type === 'escalate') {
+    const normalized = String(userMessage || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 500);
+    if (normalized) db.prepare("INSERT INTO unanswered_questions (question, normalized) VALUES (?, ?) ON CONFLICT(normalized) DO UPDATE SET count = count + 1, last_asked_at = datetime('now')").run(String(userMessage).slice(0, 500), normalized);
   }
 
   // answer, clarify, miss
